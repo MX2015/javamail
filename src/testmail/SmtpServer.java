@@ -8,7 +8,9 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Properties;
 
 /**
@@ -36,6 +38,8 @@ public class SmtpServer extends Thread {
     private Socket socket;
     private BufferedReader br;
     private PrintWriter pw;
+    //用于群发列表的存储
+    private List<Account> accounts;
 
 
     public SmtpServer(Socket socket) {
@@ -143,7 +147,7 @@ public class SmtpServer extends Thread {
                 try {
                     sendMessage("334 " + UtilBase64.encryptBASE64("username:".getBytes()));
                     String mailaddress = new String(UtilBase64.decryptBASE64(br.readLine().trim()));  //解密name
-                    System.out.println("mailaddress"+mailaddress);
+                    System.out.println("mailaddress" + mailaddress);
                     int index = mailaddress.indexOf("@");
                     FromAccount.name = mailaddress.substring(0, index); // 取出<@之间的，即用户名
                     FromAccount.dir = mailaddress.substring(index + 1); // 取出@>之间的，即域名
@@ -199,20 +203,31 @@ public class SmtpServer extends Thread {
 
     //发送邮件 指定的邮箱  rcpt <875729140@qq.com>
     private void doRCPT(String argument) {
-        ToAccount = new Account();
-        StringBuffer responseBuffer = new StringBuffer();
         if (argument == null) {
             sendMessage("501 the wrong argument");
         }
         int index1 = argument.indexOf("<");
         int index2 = argument.indexOf("@");
         int index3 = argument.indexOf(">");
-        ToAccount.name = argument.substring(index1 + 1, index2);
-        ToAccount.dir = argument.substring(index2 + 1, index3);
-        ToFile = new File(path + "\\" + ToAccount.name + File.separator);//接收者目录
+        if (ToAccount == null) {
+            //初始化群发的列表
+            accounts = new ArrayList<Account>();
+            ToAccount = new Account();
+            ToAccount.name = argument.substring(index1 + 1, index2);
+            ToAccount.dir = argument.substring(index2 + 1, index3);
+            ToFile = new File(path + "\\" + ToAccount.name + File.separator);//接收者目录
+        } else {
+            //第二次进入 第二个邮箱地址
+            //临时的用户对象创建
+            Account account = new Account();
+            account.name = argument.substring(index1 + 1, index2);
+            account.dir = argument.substring(index2 + 1, index3);
+            ToFile = new File(path + "\\" + account.name + File.separator);//接收者目录
+            accounts.add(account);
+        }
         if (!ToFile.exists()) ToFile.mkdirs();//没有就创建一个接受者目录
-        responseBuffer.append("250 OK!");
-        sendMessage(responseBuffer.toString());
+        sendMessage("250 OK!");
+
     }
 
     // 书写邮件正文 data
@@ -238,6 +253,45 @@ public class SmtpServer extends Thread {
             }
         }
         sendMessage("250 Ok");
+        //群发
+        for (Account account : accounts) {
+            File toOtherFile = new File(path + account.name + File.separator + UtilDate.getOrderNum() + ".txt");//群发的每一个用户的的邮件
+            copyFile(tofile, toOtherFile);
+        }
+    }
+
+    //给每一用户发一份邮件
+    private void copyFile(File tofile, File toOtherFile) {
+        FileInputStream fileInputStream = null;
+        FileOutputStream fileOutputStream = null;
+        try {
+            fileInputStream = new FileInputStream(tofile);
+            fileOutputStream = new FileOutputStream(toOtherFile);
+            int len = -1;
+            byte[] bytes = new byte[1024];
+            while ((len = fileInputStream.read(bytes)) != -1) {
+                fileOutputStream.write(bytes, 0, len);
+            }
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (fileOutputStream != null) {
+                try {
+                    fileOutputStream.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
 
